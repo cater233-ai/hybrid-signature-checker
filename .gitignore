@@ -1,0 +1,13 @@
+node_modules/
+artifacts/
+cache/
+ignition/deployments/
+*.tsbuildinfo
+dist/
+
+# Secrets: the testnet account keys live in .env only, never in git.
+.env
+.env.*
+!.env.example
+
+.DS_Store

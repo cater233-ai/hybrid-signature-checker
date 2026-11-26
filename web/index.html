@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hybrid Signature Checker — QoreChain testnet</title>
+<style>
+  :root {
+    --ink: #1c1c1a;
+    --muted: #6b6b66;
+    --line: #ddd9d2;
+    --paper: #fbfaf8;
+    --accent: #166534;
+    --accent-ink: #ffffff;
+    --bad: #b3261e;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 44rem; margin: 0 auto; padding: 2.5rem 1.25rem 3rem; }
+  header h1 { font-size: 1.45rem; margin: 0 0 .35rem; letter-spacing: -.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 36rem; }
+  form {
+    margin-top: 1.75rem;
+    padding: 1.25rem;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  label { display: block; font-weight: 600; margin-bottom: .5rem; }
+  .row { display: flex; gap: .6rem; }
+  input {
+    flex: 1 1 auto; min-width: 0;
+    font-family: var(--mono); font-size: 1rem;
+    padding: .7rem .8rem;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--paper); color: var(--ink);
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    flex: 0 0 auto; min-height: 48px;
+    padding: .7rem 1.2rem;
+    font: inherit; font-weight: 600;
+    color: var(--accent-ink); background: var(--accent);
+    border: 0; border-radius: 8px; cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: wait; }
+  .hint { margin: .6rem 0 0; color: var(--muted); font-size: .9rem; }
+  .error { margin: .6rem 0 0; color: var(--bad); font-size: .95rem; }
+  section#result { margin-top: 1.5rem; }
+  .verdict {
+    padding: 1rem 1.25rem;
+    background: #fff;
+    border: 1px solid var(--line); border-left: 5px solid var(--muted);
+    border-radius: 10px; font-weight: 600;
+  }
+  .verdict.ok { border-left-color: var(--accent); }
+  .verdict.fail { border-left-color: var(--bad); }
+  dl {
+    margin: 1rem 0 0; padding: 1.25rem;
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    display: grid; grid-template-columns: 11.5rem 1fr; gap: .45rem 1rem;
+  }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  dd.mono { font-family: var(--mono); font-size: .9rem; }
+  .copy {
+    margin-left: .5rem; padding: .15rem .55rem; min-height: 0;
+    font-size: .8rem; font-weight: 500;
+    color: var(--ink); background: var(--paper);
+    border: 1px solid var(--line);
+  }
+  footer { margin-top: 2.5rem; color: var(--muted); font-size: .9rem; }
+  footer a, section a { color: var(--accent); }
+  @media (max-width: 560px) {
+    main { padding-top: 1.75rem; }
+    .row { flex-direction: column; }
+    button { width: 100%; }
+    dl { grid-template-columns: 1fr; gap: .15rem; }
+    dd { margin-bottom: .6rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Hybrid Signature Checker</h1>
+    <p>Paste a QoreChain testnet transaction hash. The page reads the transaction
+       back from the chain and shows both signatures — classical secp256k1 and
+       post-quantum ML-DSA-87 — plus the chain's own verification verdict.</p>
+  </header>
+
+  <form id="lookup">
+    <label for="hash">Transaction hash</label>
+    <div class="row">
+      <input id="hash" name="hash" type="text" inputmode="text" autocomplete="off"
+             spellcheck="false" placeholder="64 hex characters">
+      <button id="go" type="submit">Read from chain</button>
+    </div>
+    <p class="hint" id="status">Read-only: no wallet, no keys, nothing is signed or sent.</p>
+    <p class="error" id="error" hidden></p>
+  </form>
+
+  <section id="result" hidden>
+    <p class="verdict" id="verdict"></p>
+    <dl id="facts"></dl>
+    <p class="hint">Full record: <a id="explorer" href="#" target="_blank" rel="noopener">open in the explorer</a>
+       (switch the explorer to Testnet if the hash is not found).</p>
+  </section>
+
+  <footer>
+    Built for Build Before Q-Day (Quantum Pass) on the QoreChain Diana testnet.
+    Transactions are produced by the companion CLI (<span style="font-family:var(--mono)">pnpm send</span>);
+    this page only reads public chain data.
+  </footer>
+</main>
+
+<script>
+"use strict";
+// Same read-back logic as scripts/verify.ts, kept small for the browser:
+// find the PQCHybridSignature extension, measure both signatures, and read
+// the pqc_hybrid_verify event the validators emitted.
+const form = document.getElementById("lookup");
+const input = document.getElementById("hash");
+const button = document.getElementById("go");
+const statusLine = document.getElementById("status");
+const errorLine = document.getElementById("error");
+const resultBox = document.getElementById("result");
+const verdictBox = document.getElementById("verdict");
+const facts = document.getElementById("facts");
+const explorer = document.getElementById("explorer");
+
+function b64Bytes(value) {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return null;
+  try { return atob(value).length; } catch { return null; }
+}
+
+function largestBase64Below(node, minBytes) {
+  let best = null;
+  const visit = (v) => {
+    if (typeof v === "string") {
+      const n = b64Bytes(v);
+      if (n !== null && n >= minBytes && (best === null || n > best)) best = n;
+    } else if (Array.isArray(v)) v.forEach(visit);
+    else if (v !== null && typeof v === "object") Object.values(v).forEach(visit);
+  };
+  visit(node);
+  return best;
+}
+
+function parseTx(record) {
+  const tx = record.tx ?? {};
+  const response = record.tx_response ?? {};
+  const body = tx.body ?? {};
+  const extensions = body.extension_options ?? [];
+  const ext = extensions.find((e) => String(e?.["@type"] ?? "").includes("PQCHybridSignature"));
+  const event = (response.events ?? []).find((e) => e?.type === "pqc_hybrid_verify");
+  const statusAttr = (event?.attributes ?? []).find((a) => a?.key === "status");
+  return {
+    height: String(response.height ?? "?"),
+    code: Number(response.code ?? -1),
+    messages: (body.messages ?? []).map((m) => String(m?.["@type"] ?? "unknown")),
+    extensionType: ext ? String(ext["@type"]) : null,
+    classicalBytes: (tx.signatures ?? [])[0] ? b64Bytes(tx.signatures[0]) : null,
+    classicalSig: (tx.signatures ?? [])[0] ?? null,
+    pqcBytes: ext ? largestBase64Below(ext, 1000) : null,
+    verdict: statusAttr ? String(statusAttr.value) : null,
+  };
+}
+
+function row(term, value, mono = false) {
+  const dt = document.createElement("dt");
+  dt.textContent = term;
+  const dd = document.createElement("dd");
+  if (mono) dd.className = "mono";
+  dd.textContent = value;
+  facts.append(dt, dd);
+  return dd;
+}
+
+function addCopy(dd, text) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "copy";
+  btn.textContent = "Copy";
+  btn.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(text); btn.textContent = "Copied"; }
+    catch { btn.textContent = "Copy failed"; }
+    setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+  });
+  dd.appendChild(btn);
+}
+
+function shorten(sig) {
+  return sig.length > 44 ? sig.slice(0, 24) + "…" + sig.slice(-16) : sig;
+}
+
+function render(hash, r) {
+  const ok = r.code === 0 && r.verdict === "verified";
+  verdictBox.className = "verdict " + (ok ? "ok" : "fail");
+  verdictBox.textContent = ok
+    ? "Hybrid signature verified on chain — both signatures checked by the validators."
+    : "This transaction does not carry a verified hybrid signature.";
+  facts.replaceChildren();
+  row("Transaction", hash, true);
+  row("Block height", r.height);
+  row("Result", r.code === 0 ? "code 0 (success)" : `code ${r.code} (failed)`);
+  row("Message", r.messages.join(", ") || "none");
+  row("Extension", r.extensionType ?? "none");
+  const classical = row("secp256k1 signature", r.classicalBytes === null ? "not found" : `${r.classicalBytes} bytes`, true);
+  if (r.classicalSig) { classical.firstChild.textContent = `${r.classicalBytes} bytes — `; classical.append(shorten(r.classicalSig)); addCopy(classical, r.classicalSig); }
+  row("ML-DSA-87 signature", r.pqcBytes === null ? "not found" : `${r.pqcBytes} bytes`, true);
+  row("Chain verdict", r.verdict === null ? "no pqc_hybrid_verify event" : `pqc_hybrid_verify: ${r.verdict}`);
+  explorer.href = "https://explore.qore.network";
+  resultBox.hidden = false;
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  errorLine.hidden = true;
+  resultBox.hidden = true;
+  const hash = input.value.trim().toUpperCase();
+  if (!/^[0-9A-F]{64}$/.test(hash)) {
+    errorLine.textContent = "That is not a transaction hash: it must be exactly 64 hex characters.";
+    errorLine.hidden = false;
+    return;
+  }
+  button.disabled = true;
+  statusLine.textContent = "Reading the transaction from the testnet…";
+  try {
+    const res = await fetch(`/lcd/cosmos/tx/v1beta1/txs/${hash}`);
+    if (res.status === 404) throw new Error("Transaction not found (yet). Wait a few seconds and try again.");
+    if (!res.ok) throw new Error(`The chain endpoint answered HTTP ${res.status}.`);
+    render(hash, parseTx(await res.json()));
+    statusLine.textContent = "Read-only: no wallet, no keys, nothing is signed or sent.";
+  } catch (err) {
+    errorLine.textContent = err instanceof Error ? err.message : String(err);
+    errorLine.hidden = false;
+    statusLine.textContent = "Read-only: no wallet, no keys, nothing is signed or sent.";
+  } finally {
+    button.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
