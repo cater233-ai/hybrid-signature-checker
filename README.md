@@ -100,8 +100,24 @@ public data. Layout is responsive and controls are tap-sized.
 
 - Account: `0x6e8785B0fdB8495Fe506eC939c0586Fe26Acb1cF`
   (`qor1d6rctv8ahpy4legxajfecpvxlcn2evw0ljehye`)
-- First verified hybrid transaction: *pending — added with the faucet
-  claim, registration and send, together with the `pnpm verify` output.*
+- Faucet claim (100 test QOR):
+  `DC3F3C8C848BB594B79A6EF51D0F151725EB849488CB477C7BEAD71CA9E07161`
+- PQC key registration (`pnpm window register`):
+  `53EEC82845E2E1EC35D5FAB0EFD45DB2C672D4A770066F47B9A96C0E33FB71B7`
+- Registration proof transfer (`pnpm proof`, 1 uqor self-transfer,
+  memo `bbqd-link:iaUxBxWopcXt`):
+  `6465C16585BAD85B590A08794A5E6B0CA69EC047F653EB9F115E85C3AEB73BE5`
+- EVM window opened (`pnpm window open`):
+  `5BFE8492401354068F50E2EB4D3712C02D060B2FE51C5EC73409909A7F520AC9`
+- Counter deployed (`pnpm deploy:testnet`): contract
+  `0x55FD00415D7270ECe00C0Fca75fc766cbB07CbF2`, tx
+  `0xc672fa51d3c3f87126139357f0abf682a756b431b5cfe5d9186f723e7b39b250`
+- Hybrid-signed send (`pnpm send`, 1 QOR):
+  `E104AF256423BF583F5F633DBE9F50919642611067D9D6C786791AF63EAB7B1C`
+- Verification (`pnpm verify` on both the proof transfer and the send):
+  each record carries the `PQCHybridSignature` extension with a 64-byte
+  secp256k1 signature and a 4,627-byte ML-DSA-87 signature, and the
+  chain's `pqc_hybrid_verify` verdict is `verified` for both.
 
 ## Security notes
 

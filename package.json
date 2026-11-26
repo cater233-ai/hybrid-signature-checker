@@ -11,6 +11,7 @@
     "deploy:testnet": "hardhat ignition deploy ignition/modules/Counter.ts --network qorechainTestnet",
     "typecheck": "tsc --noEmit",
     "send": "tsx --env-file=.env scripts/send.ts",
+    "proof": "tsx --env-file=.env scripts/proof.ts",
     "verify": "tsx scripts/verify.ts",
     "web": "node web/server.mjs"
   },
